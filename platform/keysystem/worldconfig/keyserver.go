@@ -223,41 +223,31 @@ func GenerateGrants(context *config.Context, conf *SpireSetup, groups Groups, au
 
 		"access-ssh": {
 			Group: groups.RootAdmins,
-			Specialize: func(ac *account.Account) *config.CompiledGrant {
-				return &config.CompiledGrant{
-					Privilege:    "sign-ssh",
-					Authority:    auth.SshUser,
-					Lifespan:     4 * time.Hour,
-					IsHost:       false,
-					CommonName:   "temporary-ssh-grant-" + ac.Principal,
-					AllowedNames: []string{"root"},
-				}
+			Specialize: func(ac *account.Account, context *config.Context) account.Privilege {
+				return account.NewSSHGrantPrivilege(
+					auth.SshUser, false, 4*time.Hour,
+					"temporary-ssh-grant-"+ac.Principal, []string{"root"},
+				)
 			},
 		},
 
 		"access-etcd": {
 			Group: groups.RootAdmins,
-			Specialize: func(ac *account.Account) *config.CompiledGrant {
-				return &config.CompiledGrant{
-					Privilege:  "sign-tls",
-					Authority:  auth.EtcdClient,
-					Lifespan:   4 * time.Hour,
-					IsHost:     false,
-					CommonName: "temporary-etcd-grant-" + ac.Principal,
-				}
+			Specialize: func(ac *account.Account, context *config.Context) account.Privilege {
+				return account.NewTLSGrantPrivilege(
+					auth.EtcdClient, false, 4*time.Hour,
+					"temporary-etcd-grant-"+ac.Principal, nil,
+				)
 			},
 		},
 
 		"access-kubernetes": {
 			Group: groups.RootAdmins,
-			Specialize: func(ac *account.Account) *config.CompiledGrant {
-				return &config.CompiledGrant{
-					Privilege:  "sign-tls",
-					Authority:  auth.Kubernetes,
-					Lifespan:   4 * time.Hour,
-					IsHost:     false,
-					CommonName: "temporary-kube-grant-" + ac.Principal,
-				}
+			Specialize: func(ac *account.Account, context *config.Context) account.Privilege {
+				return account.NewTLSGrantPrivilege(
+					auth.Kubernetes, false, 4*time.Hour,
+					"temporary-kube-grant-"+ac.Principal, nil,
+				)
 			},
 		},
 
@@ -265,46 +255,32 @@ func GenerateGrants(context *config.Context, conf *SpireSetup, groups Groups, au
 
 		"bootstrap": {
 			Group: groups.RootAdmins,
-			Specialize: func(ac *account.Account) *config.CompiledGrant {
-				return &config.CompiledGrant{
-					Privilege: "bootstrap-account",
-					Scope:     groups.Nodes,
-					Lifespan:  time.Hour,
-				}
+			Specialize: func(ac *account.Account, context *config.Context) account.Privilege {
+				return account.NewBootstrapPrivilege(groups.Nodes, time.Hour, context.TokenVerifier.Registry)
 			},
 		},
 
 		"bootstrap-keyinit": {
 			Group: groups.SupervisorNodes,
-			Specialize: func(ac *account.Account) *config.CompiledGrant {
-				return &config.CompiledGrant{
-					Privilege: "bootstrap-account",
-					Scope:     groups.Nodes,
-					Lifespan:  time.Hour,
+			Specialize: func(ac *account.Account, context *config.Context) account.Privilege {
+				if context.TokenVerifier.Registry == nil {
+					panic("expected registry to exist")
 				}
+				return account.NewBootstrapPrivilege(groups.Nodes, time.Hour, context.TokenVerifier.Registry)
 			},
 		},
 
 		"renew-keygrant": {
 			Group: groups.Nodes,
-			Specialize: func(ac *account.Account) *config.CompiledGrant {
-				return &config.CompiledGrant{
-					Privilege:  "sign-tls",
-					Authority:  auth.Keygranting,
-					Lifespan:   OneDay * 40,
-					IsHost:     false,
-					CommonName: ac.Principal,
-				}
+			Specialize: func(ac *account.Account, context *config.Context) account.Privilege {
+				return account.NewTLSGrantPrivilege(auth.Keygranting, false, OneDay*40, ac.Principal, nil)
 			},
 		},
 
 		"auth-to-kerberos": { // integration with kerberos gateway
 			Group: groups.SupervisorNodes,
-			Specialize: func(ac *account.Account) *config.CompiledGrant {
-				return &config.CompiledGrant{
-					Privilege: "impersonate",
-					Scope:     groups.KerberosAccounts,
-				}
+			Specialize: func(ac *account.Account, context *config.Context) account.Privilege {
+				return account.NewImpersonatePrivilege(context.GetAccount, groups.KerberosAccounts)
 			},
 		},
 
@@ -312,20 +288,19 @@ func GenerateGrants(context *config.Context, conf *SpireSetup, groups Groups, au
 
 		"get-local-config": {
 			Group: groups.Nodes,
-			Specialize: func(ac *account.Account) *config.CompiledGrant {
+			Specialize: func(ac *account.Account, context *config.Context) account.Privilege {
 				hostname := ac.Metadata["hostname"]
 				ip := ac.Metadata["ip"]
 				schedule := ac.Metadata["schedule"]
 				kind := ac.Metadata["kind"]
-				return &config.CompiledGrant{
-					Privilege: "construct-configuration",
-					Contents: `# generated automatically by keyserver
+				return account.NewConfigurationPrivilege(
+					`# generated automatically by keyserver
 HOST_NODE=` + hostname + `
 HOST_DNS=` + hostname + `.` + domain + `
 HOST_IP=` + ip + `
 SCHEDULE_WORK=` + schedule + `
 KIND=` + kind,
-				}
+				)
 			},
 		},
 
@@ -333,36 +308,28 @@ KIND=` + kind,
 
 		"grant-ssh-host": {
 			Group: groups.Nodes,
-			Specialize: func(ac *account.Account) *config.CompiledGrant {
+			Specialize: func(ac *account.Account, context *config.Context) account.Privilege {
 				hostname := ac.Metadata["hostname"]
 				ip := ac.Metadata["ip"]
-				return &config.CompiledGrant{
-					Privilege:  "sign-ssh",
-					Authority:  auth.SshHost,
-					Lifespan:   OneDay * 60,
-					IsHost:     true,
-					CommonName: "admitted-" + ac.Principal,
-					AllowedNames: []string{
+				return account.NewSSHGrantPrivilege(
+					auth.SshHost, true, OneDay*60, "admitted-"+ac.Principal,
+					[]string{
 						hostname + "." + domain,
 						hostname,
 						ip,
 					},
-				}
+				)
 			},
 		},
 
 		"grant-kubernetes-master": {
 			Group: groups.MasterNodes,
-			Specialize: func(ac *account.Account) *config.CompiledGrant {
+			Specialize: func(ac *account.Account, context *config.Context) account.Privilege {
 				hostname := ac.Metadata["hostname"]
 				ip := ac.Metadata["ip"]
-				return &config.CompiledGrant{
-					Privilege:  "sign-tls",
-					Authority:  auth.Kubernetes,
-					Lifespan:   30 * OneDay,
-					IsHost:     true,
-					CommonName: "kube-master-" + hostname,
-					AllowedNames: []string{
+				return account.NewTLSGrantPrivilege(
+					auth.Kubernetes, true, 30*OneDay, "kube-master-"+hostname,
+					[]string{
 						hostname + "." + domain,
 						hostname,
 						"kubernetes",
@@ -372,42 +339,34 @@ KIND=` + kind,
 						ip,
 						serviceAPI,
 					},
-				}
+				)
 			},
 		},
 
 		"grant-etcd-server": {
 			Group: groups.MasterNodes,
-			Specialize: func(ac *account.Account) *config.CompiledGrant {
+			Specialize: func(ac *account.Account, context *config.Context) account.Privilege {
 				hostname := ac.Metadata["hostname"]
 				ip := ac.Metadata["ip"]
-				return &config.CompiledGrant{
-					Privilege:  "sign-tls",
-					Authority:  auth.EtcdServer,
-					Lifespan:   30 * OneDay,
-					IsHost:     true,
-					CommonName: "etcd-server-" + hostname,
-					AllowedNames: []string{
+				return account.NewTLSGrantPrivilege(
+					auth.EtcdServer, true, 30*OneDay, "etcd-server-"+hostname,
+					[]string{
 						hostname + "." + domain,
 						hostname,
 						ip,
 					},
-				}
+				)
 			},
 		},
 
 		"grant-registry-host": {
 			Group: groups.SupervisorNodes,
-			Specialize: func(ac *account.Account) *config.CompiledGrant {
+			Specialize: func(ac *account.Account, context *config.Context) account.Privilege {
 				hostname := ac.Metadata["hostname"]
-				return &config.CompiledGrant{
-					Privilege:    "sign-tls",
-					Authority:    auth.ClusterTLS,
-					Lifespan:     30 * OneDay,
-					IsHost:       true,
-					CommonName:   "homeworld-supervisor-" + hostname,
-					AllowedNames: []string{"homeworld.private"},
-				}
+				return account.NewTLSGrantPrivilege(
+					auth.ClusterTLS, true, 30*OneDay, "homeworld-supervisor-"+hostname,
+					[]string{"homeworld.private"},
+				)
 			},
 		},
 
@@ -415,51 +374,39 @@ KIND=` + kind,
 
 		"grant-kubernetes-worker": {
 			Group: groups.Nodes,
-			Specialize: func(ac *account.Account) *config.CompiledGrant {
+			Specialize: func(ac *account.Account, context *config.Context) account.Privilege {
 				hostname := ac.Metadata["hostname"]
 				ip := ac.Metadata["ip"]
-				return &config.CompiledGrant{
-					Privilege:  "sign-tls",
-					Authority:  auth.Kubernetes,
-					Lifespan:   30 * OneDay,
-					IsHost:     true,
-					CommonName: "kube-worker-" + hostname,
-					AllowedNames: []string{
+				return account.NewTLSGrantPrivilege(
+					auth.Kubernetes, true, 30*OneDay, "kube-worker-"+hostname,
+					[]string{
 						hostname + "." + domain,
 						hostname,
 						ip,
 					},
-				}
+				)
 			},
 		},
 
 		"grant-etcd-client": {
 			Group: groups.MasterNodes,
-			Specialize: func(ac *account.Account) *config.CompiledGrant {
+			Specialize: func(ac *account.Account, context *config.Context) account.Privilege {
 				hostname := ac.Metadata["hostname"]
 				ip := ac.Metadata["ip"]
-				return &config.CompiledGrant{
-					Privilege:  "sign-tls",
-					Authority:  auth.EtcdClient,
-					Lifespan:   30 * OneDay,
-					IsHost:     false,
-					CommonName: "etcd-client-" + hostname,
-					AllowedNames: []string{
+				return account.NewTLSGrantPrivilege(auth.EtcdClient, false, 30*OneDay, "etcd-client-"+hostname,
+					[]string{
 						hostname + "." + domain,
 						hostname,
 						ip,
 					},
-				}
+				)
 			},
 		},
 
 		"fetch-serviceaccount-key": {
 			Group: groups.MasterNodes,
-			Specialize: func(ac *account.Account) *config.CompiledGrant {
-				return &config.CompiledGrant{
-					Privilege: "fetch-key",
-					Authority: auth.ServiceAccount,
-				}
+			Specialize: func(ac *account.Account, context *config.Context) account.Privilege {
+				return account.NewFetchKeyPrivilege(auth.ServiceAccount)
 			},
 		},
 	}
@@ -467,15 +414,9 @@ KIND=` + kind,
 	for api, grant := range grants {
 		privileges := map[string]account.Privilege{}
 		for _, ac := range grant.Group.AllMembers {
-			priv, err := grant.Specialize(ac).CompileToPrivilege(context)
-			if err != nil {
-				return fmt.Errorf("%s (in grant %s for account %s)", err, api, ac.Principal)
-			}
-			privileges[ac.Principal] = priv
+			privileges[ac.Principal] = grant.Specialize(ac, context)
 		}
 		context.Grants[api] = config.Grant{
-			API:                api,
-			Group:              grant.Group,
 			PrivilegeByAccount: privileges,
 		}
 	}

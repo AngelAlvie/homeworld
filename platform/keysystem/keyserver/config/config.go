@@ -13,5 +13,5 @@ type ConfigAuthority struct {
 
 type ConfigGrant struct {
 	Group      *account.Group
-	Specialize func(*account.Account) *CompiledGrant
+	Specialize func(*account.Account, *Context) account.Privilege
 }

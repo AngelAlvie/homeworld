@@ -5,7 +5,6 @@ go_library(
     srcs = [
         "config.go",
         "context.go",
-        "privilege.go",
     ],
     importpath = "github.com/sipb/homeworld/platform/keysystem/keyserver/config",
     visibility = ["//visibility:public"],
