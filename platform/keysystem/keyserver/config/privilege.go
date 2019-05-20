@@ -7,7 +7,6 @@ import (
 
 	"github.com/sipb/homeworld/platform/keysystem/keyserver/account"
 	"github.com/sipb/homeworld/platform/keysystem/keyserver/authorities"
-	"github.com/sipb/homeworld/platform/util/strutil"
 )
 
 type CompiledGrant struct {
@@ -19,52 +18,6 @@ type CompiledGrant struct {
 	CommonName   string
 	AllowedNames []string
 	Contents     string
-}
-
-func (grant *ConfigGrant) CompileGrant(vars map[string]string, ctx *Context) (*CompiledGrant, error) {
-	g := &CompiledGrant{Privilege: grant.Privilege, Scope: grant.Scope, IsHost: grant.IsHost}
-	if grant.Privilege == "" {
-		return nil, errors.New("expected privilege to be specified")
-	}
-	if grant.Authority != "" {
-		authority, err := ctx.GetAuthority(grant.Authority)
-		if err != nil {
-			return nil, err
-		}
-		g.Authority = authority
-	}
-	if grant.Lifespan != "" {
-		lifespan, err := time.ParseDuration(grant.Lifespan)
-		if err != nil {
-			return nil, err
-		}
-		if lifespan <= 0 {
-			return nil, errors.New("nonpositive lifespans are not supported")
-		}
-		g.Lifespan = lifespan
-	}
-	if grant.CommonName != "" {
-		commonname, err := strutil.SubstituteVars(grant.CommonName, vars)
-		if err != nil {
-			return nil, err
-		}
-		g.CommonName = commonname
-	}
-	if grant.AllowedNames != nil {
-		allowednames, err := strutil.SubstituteAllVars(grant.AllowedNames, vars)
-		if err != nil {
-			return nil, err
-		}
-		g.AllowedNames = allowednames
-	}
-	if grant.Contents != "" {
-		contents, err := strutil.SubstituteVars(grant.Contents, vars)
-		if err != nil {
-			return nil, err
-		}
-		g.Contents = contents
-	}
-	return g, nil
 }
 
 func (grant *CompiledGrant) CompileToPrivilege(context *Context) (account.Privilege, error) {

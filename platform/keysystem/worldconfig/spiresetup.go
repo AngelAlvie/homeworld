@@ -10,7 +10,7 @@ type SpireSetup struct {
 	Cluster struct {
 		ExternalDomain string `yaml:"external-domain"`
 		InternalDomain string `yaml:"internal-domain"`
-		KerberosRealm string `yaml:"kerberos-realm"`
+		KerberosRealm  string `yaml:"kerberos-realm"`
 	}
 	Addresses struct {
 		ServiceAPI string `yaml:"service-api"`

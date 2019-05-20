@@ -3,13 +3,16 @@ package worldconfig
 import (
 	"fmt"
 	"github.com/pkg/errors"
+	"net"
+	"os"
+	"time"
+
 	"github.com/sipb/homeworld/platform/keysystem/keyserver/account"
 	"github.com/sipb/homeworld/platform/keysystem/keyserver/authorities"
 	"github.com/sipb/homeworld/platform/keysystem/keyserver/config"
 	"github.com/sipb/homeworld/platform/keysystem/keyserver/verifier"
 	"github.com/sipb/homeworld/platform/keysystem/worldconfig/paths"
-	"net"
-	"os"
+	"github.com/sipb/homeworld/platform/util/strutil"
 )
 
 type Groups struct {
@@ -129,10 +132,25 @@ func GenerateAccounts(context *config.Context, conf *SpireSetup, groups Groups) 
 	}
 
 	for _, ac := range accounts {
+		if ac.Metadata == nil {
+			ac.Metadata = map[string]string{}
+		}
 		ac.Metadata["principal"] = ac.Principal
 		context.Accounts[ac.Principal] = ac
 	}
 	return nil
+}
+
+type Authorities struct {
+	Keygranting    *authorities.TLSAuthority
+	ServerTLS      *authorities.TLSAuthority
+	ClusterTLS     *authorities.TLSAuthority
+	SshUser        *authorities.SSHAuthority
+	SshHost        *authorities.SSHAuthority
+	EtcdServer     *authorities.TLSAuthority
+	EtcdClient     *authorities.TLSAuthority
+	Kubernetes     *authorities.TLSAuthority
+	ServiceAccount *authorities.StaticAuthority
 }
 
 func GenerateAuthorities(conf *SpireSetup) map[string]config.ConfigAuthority {
@@ -193,7 +211,7 @@ func GenerateAuthorities(conf *SpireSetup) map[string]config.ConfigAuthority {
 	}
 }
 
-func GenerateGrants(context *config.Context, conf *SpireSetup, groups Groups) error {
+func GenerateGrants(context *config.Context, conf *SpireSetup, groups Groups, auth Authorities) error {
 	domain := conf.Cluster.ExternalDomain
 	internalDomain := conf.Cluster.InternalDomain
 	serviceAPI := conf.Addresses.ServiceAPI
@@ -204,7 +222,7 @@ func GenerateGrants(context *config.Context, conf *SpireSetup, groups Groups) er
 		"access-ssh": {
 			Group:        groups.RootAdmins,
 			Privilege:    "sign-ssh",
-			Authority:    "ssh-user",
+			Authority:    auth.SshUser,
 			Lifespan:     "4h",
 			IsHost:       false,
 			CommonName:   "temporary-ssh-grant-(principal)",
@@ -214,7 +232,7 @@ func GenerateGrants(context *config.Context, conf *SpireSetup, groups Groups) er
 		"access-etcd": {
 			Group:      groups.RootAdmins,
 			Privilege:  "sign-tls",
-			Authority:  "etcd-client",
+			Authority:  auth.EtcdClient,
 			Lifespan:   "4h",
 			IsHost:     false,
 			CommonName: "temporary-etcd-grant-(principal)",
@@ -223,7 +241,7 @@ func GenerateGrants(context *config.Context, conf *SpireSetup, groups Groups) er
 		"access-kubernetes": {
 			Group:      groups.RootAdmins,
 			Privilege:  "sign-tls",
-			Authority:  "kubernetes",
+			Authority:  auth.Kubernetes,
 			Lifespan:   "4h",
 			IsHost:     false,
 			CommonName: "temporary-kube-grant-(principal)",
@@ -248,7 +266,7 @@ func GenerateGrants(context *config.Context, conf *SpireSetup, groups Groups) er
 		"renew-keygrant": {
 			Group:      groups.Nodes,
 			Privilege:  "sign-tls",
-			Authority:  AuthenticationAuthority,
+			Authority:  auth.Keygranting,
 			Lifespan:   "960h", // forty day lifespan
 			IsHost:     false,
 			CommonName: "(principal)",
@@ -278,7 +296,7 @@ KIND=(kind)`,
 		"grant-ssh-host": {
 			Group:      groups.Nodes,
 			Privilege:  "sign-ssh",
-			Authority:  "ssh-host",
+			Authority:  auth.SshHost,
 			Lifespan:   "1440h", // sixty day lifespan
 			IsHost:     true,
 			CommonName: "admitted-(principal)",
@@ -292,7 +310,7 @@ KIND=(kind)`,
 		"grant-kubernetes-master": {
 			Group:      groups.MasterNodes,
 			Privilege:  "sign-tls",
-			Authority:  "kubernetes",
+			Authority:  auth.Kubernetes,
 			Lifespan:   "720h",
 			IsHost:     true,
 			CommonName: "kube-master-(hostname)",
@@ -311,7 +329,7 @@ KIND=(kind)`,
 		"grant-etcd-server": {
 			Group:      groups.MasterNodes,
 			Privilege:  "sign-tls",
-			Authority:  "etcd-server",
+			Authority:  auth.EtcdServer,
 			Lifespan:   "720h", // thirty days
 			IsHost:     true,
 			CommonName: "etcd-server-(hostname)",
@@ -325,7 +343,7 @@ KIND=(kind)`,
 		"grant-registry-host": {
 			Group:        groups.SupervisorNodes,
 			Privilege:    "sign-tls",
-			Authority:    "clustertls",
+			Authority:    auth.ClusterTLS,
 			Lifespan:     "720h", // thirty days
 			IsHost:       true,
 			CommonName:   "homeworld-supervisor-(hostname)",
@@ -337,7 +355,7 @@ KIND=(kind)`,
 		"grant-kubernetes-worker": {
 			Group:      groups.Nodes,
 			Privilege:  "sign-tls",
-			Authority:  "kubernetes",
+			Authority:  auth.Kubernetes,
 			Lifespan:   "720h",
 			IsHost:     true,
 			CommonName: "kube-worker-(hostname)",
@@ -351,7 +369,7 @@ KIND=(kind)`,
 		"grant-etcd-client": {
 			Group:      groups.MasterNodes,
 			Privilege:  "sign-tls",
-			Authority:  "etcd-client",
+			Authority:  auth.EtcdClient,
 			Lifespan:   "720h",
 			IsHost:     false,
 			CommonName: "etcd-client-(hostname)",
@@ -365,7 +383,7 @@ KIND=(kind)`,
 		"fetch-serviceaccount-key": {
 			Group:     groups.MasterNodes,
 			Privilege: "fetch-key",
-			Authority: "serviceaccount",
+			Authority: auth.ServiceAccount,
 		},
 	}
 
@@ -380,7 +398,7 @@ KIND=(kind)`,
 			if !found {
 				return fmt.Errorf("no such account %s", accountname)
 			}
-			cgrant, err := grant.CompileGrant(ac.Metadata, context)
+			cgrant, err := CompileGrant(grant, ac.Metadata, context)
 			if err != nil {
 				return err
 			}
@@ -393,6 +411,47 @@ KIND=(kind)`,
 		context.Grants[api] = config.Grant{api, grant.Group, privileges}
 	}
 	return nil
+}
+
+func CompileGrant(grant config.ConfigGrant, vars map[string]string, ctx *config.Context) (*config.CompiledGrant, error) {
+	g := &config.CompiledGrant{
+		Privilege: grant.Privilege,
+		Scope:     grant.Scope,
+		IsHost:    grant.IsHost,
+		Authority: grant.Authority,
+	}
+	if grant.Lifespan != "" {
+		lifespan, err := time.ParseDuration(grant.Lifespan)
+		if err != nil {
+			return nil, err
+		}
+		if lifespan <= 0 {
+			return nil, errors.New("nonpositive lifespans are not supported")
+		}
+		g.Lifespan = lifespan
+	}
+	if grant.CommonName != "" {
+		commonname, err := strutil.SubstituteVars(grant.CommonName, vars)
+		if err != nil {
+			return nil, err
+		}
+		g.CommonName = commonname
+	}
+	if grant.AllowedNames != nil {
+		allowednames, err := strutil.SubstituteAllVars(grant.AllowedNames, vars)
+		if err != nil {
+			return nil, err
+		}
+		g.AllowedNames = allowednames
+	}
+	if grant.Contents != "" {
+		contents, err := strutil.SubstituteVars(grant.Contents, vars)
+		if err != nil {
+			return nil, err
+		}
+		g.Contents = contents
+	}
+	return g, nil
 }
 
 func ValidateStaticFiles(context *config.Context) error {
@@ -447,20 +506,25 @@ func GenerateConfig() (*config.Context, error) {
 		}
 		context.Authorities[name] = loaded
 	}
-	context.AuthenticationAuthority, err = context.GetTLSAuthority(AuthenticationAuthority)
-	if err != nil {
-		return nil, err
+	auth := Authorities{
+		Keygranting:    context.Authorities[AuthenticationAuthority].(*authorities.TLSAuthority),
+		ServerTLS:      context.Authorities[ServerTLS].(*authorities.TLSAuthority),
+		ClusterTLS:     context.Authorities["clustertls"].(*authorities.TLSAuthority),
+		EtcdClient:     context.Authorities["etcd-client"].(*authorities.TLSAuthority),
+		EtcdServer:     context.Authorities["etcd-server"].(*authorities.TLSAuthority),
+		Kubernetes:     context.Authorities["kubernetes"].(*authorities.TLSAuthority),
+		ServiceAccount: context.Authorities["serviceaccount"].(*authorities.StaticAuthority),
+		SshHost:        context.Authorities["ssh-host"].(*authorities.SSHAuthority),
+		SshUser:        context.Authorities["ssh-user"].(*authorities.SSHAuthority),
 	}
-	context.ServerTLS, err = context.GetTLSAuthority(ServerTLS)
-	if err != nil {
-		return nil, err
-	}
+	context.AuthenticationAuthority = auth.Keygranting
+	context.ServerTLS = auth.ServerTLS
 	groups := GenerateGroups(context)
 	err = GenerateAccounts(context, conf, groups)
 	if err != nil {
 		return nil, err
 	}
-	err = GenerateGrants(context, conf, groups)
+	err = GenerateGrants(context, conf, groups, auth)
 	if err != nil {
 		return nil, err
 	}
