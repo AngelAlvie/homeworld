@@ -49,17 +49,9 @@ func NewSSHGrantPrivilege(authority authorities.Authority, ishost bool, lifespan
 	}, nil
 }
 
-func stringInList(value string, within []string) bool {
-	for _, elem := range within {
-		if value == elem {
-			return true
-		}
-	}
-	return false
-}
 
-func NewBootstrapPrivilege(allowedPrincipals []string, lifespan time.Duration, registry *token.TokenRegistry) (Privilege, error) {
-	if len(allowedPrincipals) == 0 {
+func NewBootstrapPrivilege(allowed *Group, lifespan time.Duration, registry *token.TokenRegistry) (Privilege, error) {
+	if len(allowed.AllMembers) == 0 {
 		return nil, errors.New("expected at least one allowed principal in token granting privilege")
 	}
 	if lifespan < time.Millisecond || registry == nil {
@@ -67,7 +59,7 @@ func NewBootstrapPrivilege(allowedPrincipals []string, lifespan time.Duration, r
 	}
 	return func(_ *OperationContext, encodedPrincipal string) (string, error) {
 		principal := string(encodedPrincipal)
-		if !stringInList(principal, allowedPrincipals) {
+		if !allowed.HasMember(principal) {
 			return "", fmt.Errorf("principal not allowed to be bootstrapped: %s", encodedPrincipal)
 		}
 		generatedToken := registry.GrantToken(principal, lifespan)

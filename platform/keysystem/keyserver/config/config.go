@@ -2,7 +2,6 @@ package config
 
 import (
 	"github.com/sipb/homeworld/platform/keysystem/keyserver/account"
-	"github.com/sipb/homeworld/platform/keysystem/keyserver/authorities"
 )
 
 type ConfigAuthority struct {
@@ -13,13 +12,6 @@ type ConfigAuthority struct {
 }
 
 type ConfigGrant struct {
-	Group        *account.Group
-	Privilege    string
-	Scope        *account.Group
-	Authority    authorities.Authority
-	IsHost       bool
-	Lifespan     string
-	CommonName   string
-	AllowedNames []string
-	Contents     string
+	Group      *account.Group
+	Specialize func(*account.Account) *CompiledGrant
 }
