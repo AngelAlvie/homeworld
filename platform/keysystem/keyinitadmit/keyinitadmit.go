@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"io/ioutil"
 	"log"
 	"os"
@@ -13,19 +14,43 @@ import (
 
 	"github.com/sipb/homeworld/platform/keysystem/api/reqtarget"
 	"github.com/sipb/homeworld/platform/keysystem/api/server"
-	"github.com/sipb/homeworld/platform/keysystem/keyserver/config"
+	"github.com/sipb/homeworld/platform/keysystem/worldconfig"
 	"github.com/sipb/homeworld/platform/keysystem/worldconfig/paths"
 	"github.com/sipb/homeworld/platform/util/wraputil"
 )
 
+func GetKeyserverName() (string, error) {
+	// TODO: deduplicate loading this file
+	cfg, err := worldconfig.LoadSpireSetup(paths.SpireSetupPath)
+	if err != nil {
+		return "", err
+	}
+	var supervisor = ""
+	for _, node := range cfg.Nodes {
+		if node.Kind == "supervisor" {
+			if supervisor != "" {
+				return "", errors.New("multiple supervisors not yet supported")
+			}
+			supervisor = node.Hostname + "." + cfg.Cluster.ExternalDomain
+		}
+	}
+	if supervisor == "" {
+		return "", errors.New("could not find name of supervisor")
+	}
+	return supervisor, nil
+}
+
 func main() {
 	logger := log.New(os.Stderr, "[keyinitadmit] ", log.Ldate|log.Ltime|log.Lmicroseconds|log.Lshortfile)
-	if len(os.Args) != 4 {
-		logger.Fatal("usage: keyinitadmit <keyserver-config> <server> <principal>\n  runs on the keyserver; requests a bootstrap token using privileged access")
+	if len(os.Args) != 1 {
+		logger.Fatal("usage: keyinitadmit\n  runs on the keyserver; requests a bootstrap token using privileged access")
 	}
-	serverName := os.Args[2]
-	principal := os.Args[3]
-	ctx, err := config.LoadConfig(os.Args[1])
+	// since there's only one keyserver, we can figure out our own name by looking for it in the setup.yaml
+	serverName, err := GetKeyserverName()
+	if err != nil {
+		logger.Fatal(err)
+	}
+	ctx, err := worldconfig.GenerateConfig()
 	if err != nil {
 		logger.Fatal(err)
 	}
@@ -54,7 +79,7 @@ func main() {
 	if err != nil {
 		logger.Fatal(err)
 	}
-	token, err := reqtarget.SendRequest(rt, paths.BootstrapKeyserverTokenAPI, principal)
+	token, err := reqtarget.SendRequest(rt, paths.BootstrapKeyserverTokenAPI, serverName)
 	if err != nil {
 		logger.Fatal(err)
 	}
