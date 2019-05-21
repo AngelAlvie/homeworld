@@ -214,10 +214,6 @@ func GenerateAuthorities(conf *SpireSetup) map[string]config.ConfigAuthority {
 }
 
 func GenerateGrants(context *config.Context, conf *SpireSetup, groups Groups, auth Authorities) error {
-	domain := conf.Cluster.ExternalDomain
-	internalDomain := conf.Cluster.InternalDomain
-	serviceAPI := conf.Addresses.ServiceAPI
-
 	grants := map[string]config.ConfigGrant{
 		// ADMIN ACCESS TO THE RUNNING CLUSTER
 
@@ -296,7 +292,7 @@ func GenerateGrants(context *config.Context, conf *SpireSetup, groups Groups, au
 				return account.NewConfigurationPrivilege(
 					`# generated automatically by keyserver
 HOST_NODE=` + hostname + `
-HOST_DNS=` + hostname + `.` + domain + `
+HOST_DNS=` + hostname + `.` + conf.Cluster.ExternalDomain + `
 HOST_IP=` + ip + `
 SCHEDULE_WORK=` + schedule + `
 KIND=` + kind,
@@ -314,7 +310,7 @@ KIND=` + kind,
 				return account.NewSSHGrantPrivilege(
 					auth.SshHost, true, OneDay*60, "admitted-"+ac.Principal,
 					[]string{
-						hostname + "." + domain,
+						hostname + "." + conf.Cluster.ExternalDomain,
 						hostname,
 						ip,
 					},
@@ -330,14 +326,14 @@ KIND=` + kind,
 				return account.NewTLSGrantPrivilege(
 					auth.Kubernetes, true, 30*OneDay, "kube-master-"+hostname,
 					[]string{
-						hostname + "." + domain,
+						hostname + "." + conf.Cluster.ExternalDomain,
 						hostname,
 						"kubernetes",
 						"kubernetes.default",
 						"kubernetes.default.svc",
-						"kubernetes.default.svc." + internalDomain,
+						"kubernetes.default.svc." + conf.Cluster.InternalDomain,
 						ip,
-						serviceAPI,
+						conf.Addresses.ServiceAPI,
 					},
 				)
 			},
@@ -351,7 +347,7 @@ KIND=` + kind,
 				return account.NewTLSGrantPrivilege(
 					auth.EtcdServer, true, 30*OneDay, "etcd-server-"+hostname,
 					[]string{
-						hostname + "." + domain,
+						hostname + "." + conf.Cluster.ExternalDomain,
 						hostname,
 						ip,
 					},
@@ -380,7 +376,7 @@ KIND=` + kind,
 				return account.NewTLSGrantPrivilege(
 					auth.Kubernetes, true, 30*OneDay, "kube-worker-"+hostname,
 					[]string{
-						hostname + "." + domain,
+						hostname + "." + conf.Cluster.ExternalDomain,
 						hostname,
 						ip,
 					},
@@ -395,7 +391,7 @@ KIND=` + kind,
 				ip := ac.Metadata["ip"]
 				return account.NewTLSGrantPrivilege(auth.EtcdClient, false, 30*OneDay, "etcd-client-"+hostname,
 					[]string{
-						hostname + "." + domain,
+						hostname + "." + conf.Cluster.ExternalDomain,
 						hostname,
 						ip,
 					},
@@ -416,9 +412,7 @@ KIND=` + kind,
 		for _, ac := range grant.Group.AllMembers {
 			privileges[ac.Principal] = grant.Specialize(ac, context)
 		}
-		context.Grants[api] = config.Grant{
-			PrivilegeByAccount: privileges,
-		}
+		context.Grants[api] = privileges
 	}
 	return nil
 }
@@ -462,7 +456,7 @@ func GenerateConfig() (*config.Context, error) {
 		},
 		Authorities: map[string]authorities.Authority{},
 		Accounts:    map[string]*account.Account{},
-		Grants:      map[string]config.Grant{},
+		Grants:      map[string]map[string]account.Privilege{},
 	}
 	err = ValidateStaticFiles(context)
 	if err != nil {
