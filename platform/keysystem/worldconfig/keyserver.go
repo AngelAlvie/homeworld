@@ -76,8 +76,7 @@ func GenerateAccounts(context *config.Context, conf *SpireSetup, auth Authoritie
 
 type Authorities struct {
 	Keygranting    *authorities.TLSAuthority
-	ServerTLS      *authorities.TLSAuthority
-	ClusterTLS     *authorities.TLSAuthority
+	ClusterCA      *authorities.TLSAuthority
 	SshUser        *authorities.SSHAuthority
 	SshHost        *authorities.SSHAuthority
 	EtcdServer     *authorities.TLSAuthority
@@ -86,30 +85,17 @@ type Authorities struct {
 	ServiceAccount *authorities.StaticAuthority
 }
 
-func GenerateAuthorities(conf *SpireSetup) map[string]config.ConfigAuthority {
-	var presentAs []string
-	for _, node := range conf.Nodes {
-		if node.IsSupervisor() {
-			presentAs = append(presentAs, node.DNS())
-		}
-	}
-
+func GenerateAuthorities() map[string]config.ConfigAuthority {
 	return map[string]config.ConfigAuthority{
 		"keygranting": {
 			Type: "TLS",
 			Key:  "keygrant.key",
 			Cert: "keygrant.pem",
 		},
-		"servertls": {
-			Type:      "TLS",
-			Key:       "server.key",
-			Cert:      "server.pem",
-			PresentAs: presentAs,
-		},
-		"clustertls": {
+		"clusterca": {
 			Type: "TLS",
 			Key:  "cluster.key",
-			Cert: "cluster.cert",
+			Cert: "cluster.pem",
 		},
 		"ssh-user": {
 			Type: "SSH",
@@ -234,7 +220,7 @@ func GrantsForNodeAccount(c *config.Context, conf *SpireSetup, groups Groups, au
 
 	if node.Kind == "supervisor" {
 		grants["grant-registry-host"] = account.NewTLSGrantPrivilege(
-			auth.ClusterTLS, true, 30*OneDay, "homeworld-supervisor-"+node.Hostname,
+			auth.ClusterCA, true, 30*OneDay, "homeworld-supervisor-"+node.Hostname,
 			[]string{"homeworld.private"},
 		)
 	}
@@ -299,14 +285,15 @@ func GenerateConfig() (*config.Context, error) {
 				Filepath: "/etc/homeworld/keyserver/static/machine.list",
 			},
 		},
-		Authorities: map[string]authorities.Authority{},
-		Accounts:    map[string]*account.Account{},
+		Authorities:  map[string]authorities.Authority{},
+		Accounts:     map[string]*account.Account{},
+		KeyserverDNS: conf.Supervisor().DNS(),
 	}
 	err = ValidateStaticFiles(context)
 	if err != nil {
 		return nil, err
 	}
-	for name, authority := range GenerateAuthorities(conf) {
+	for name, authority := range GenerateAuthorities() {
 		loaded, err := authority.Load(AuthorityKeyDirectory)
 		if err != nil {
 			return nil, err
@@ -315,8 +302,7 @@ func GenerateConfig() (*config.Context, error) {
 	}
 	auth := Authorities{
 		Keygranting:    context.Authorities["keygranting"].(*authorities.TLSAuthority),
-		ServerTLS:      context.Authorities["servertls"].(*authorities.TLSAuthority),
-		ClusterTLS:     context.Authorities["clustertls"].(*authorities.TLSAuthority),
+		ClusterCA:      context.Authorities["clusterca"].(*authorities.TLSAuthority),
 		EtcdClient:     context.Authorities["etcd-client"].(*authorities.TLSAuthority),
 		EtcdServer:     context.Authorities["etcd-server"].(*authorities.TLSAuthority),
 		Kubernetes:     context.Authorities["kubernetes"].(*authorities.TLSAuthority),
@@ -325,7 +311,7 @@ func GenerateConfig() (*config.Context, error) {
 		SshUser:        context.Authorities["ssh-user"].(*authorities.SSHAuthority),
 	}
 	context.AuthenticationAuthority = auth.Keygranting
-	context.ServerTLS = auth.ServerTLS
+	context.ClusterCA = auth.ClusterCA
 	GenerateAccounts(context, conf, auth)
 	return context, nil
 }

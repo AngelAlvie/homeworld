@@ -63,8 +63,8 @@ def call_keyreq(keyreq_command, *params):
     keyserver_domain = config.keyserver.hostname + "." + config.external_domain + ":20557"
 
     with tempfile.TemporaryDirectory() as tdir:
-        https_cert_path = os.path.join(tdir, "server.pem")
-        util.writefile(https_cert_path, authority.get_pubkey_by_filename("./server.pem"))
+        https_cert_path = os.path.join(tdir, "cluster.pem")
+        util.writefile(https_cert_path, authority.get_pubkey_by_filename("./cluster.pem"))
         keyreq_sp = subprocess.Popen(["keyreq", keyreq_command, https_cert_path, keyserver_domain] + list(params), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         output, err_bytes = keyreq_sp.communicate()
         if keyreq_sp.returncode != 0:

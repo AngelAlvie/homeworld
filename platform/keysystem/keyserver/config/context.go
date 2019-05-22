@@ -21,8 +21,9 @@ type Context struct {
 	Accounts                map[string]*account.Account
 	TokenVerifier           verifier.TokenVerifier
 	AuthenticationAuthority *authorities.TLSAuthority
-	ServerTLS               *authorities.TLSAuthority
+	ClusterCA               *authorities.TLSAuthority
 	StaticFiles             map[string]StaticFile
+	KeyserverDNS            string
 }
 
 func (a *ConfigAuthority) Load(dir string) (authorities.Authority, error) {
