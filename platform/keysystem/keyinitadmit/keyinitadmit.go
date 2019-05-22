@@ -7,7 +7,6 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
-	"io/ioutil"
 	"log"
 	"os"
 	"time"
@@ -42,9 +41,10 @@ func GetKeyserverName() (string, error) {
 
 func main() {
 	logger := log.New(os.Stderr, "[keyinitadmit] ", log.Ldate|log.Ltime|log.Lmicroseconds|log.Lshortfile)
-	if len(os.Args) != 1 {
-		logger.Fatal("usage: keyinitadmit\n  runs on the keyserver; requests a bootstrap token using privileged access")
+	if len(os.Args) != 2 {
+		logger.Fatal("usage: keyinitadmit <principal>\n  runs on the keyserver; requests a bootstrap token using privileged access")
 	}
+	principal := os.Args[1]
 	// since there's only one keyserver, we can figure out our own name by looking for it in the setup.yaml
 	serverName, err := GetKeyserverName()
 	if err != nil {
@@ -79,11 +79,11 @@ func main() {
 	if err != nil {
 		logger.Fatal(err)
 	}
-	token, err := reqtarget.SendRequest(rt, paths.BootstrapKeyserverTokenAPI, serverName)
+	token, err := reqtarget.SendRequest(rt, paths.BootstrapKeyserverTokenAPI, principal)
 	if err != nil {
 		logger.Fatal(err)
 	}
-	err = ioutil.WriteFile(paths.BootstrapTokenPath, []byte(token), 0600)
+	_, err = os.Stdout.WriteString(token)
 	if err != nil {
 		logger.Fatal(err)
 	}

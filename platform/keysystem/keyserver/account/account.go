@@ -10,6 +10,7 @@ type Account struct {
 	DisableDirectAuth bool
 	Metadata          map[string]string
 	LimitIP           net.IP
+	Privileges        map[string]Privilege
 }
 
 type Group struct {
