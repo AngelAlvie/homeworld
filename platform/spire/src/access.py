@@ -63,8 +63,8 @@ def call_keyreq(keyreq_command, *params):
     keyserver_domain = config.keyserver.hostname + "." + config.external_domain + ":20557"
 
     with tempfile.TemporaryDirectory() as tdir:
-        https_cert_path = os.path.join(tdir, "cluster.pem")
-        util.writefile(https_cert_path, authority.get_pubkey_by_filename("./cluster.pem"))
+        https_cert_path = os.path.join(tdir, "clusterca.pem")
+        util.writefile(https_cert_path, authority.get_pubkey_by_filename("./clusterca.pem"))
         keyreq_sp = subprocess.Popen(["keyreq", keyreq_command, https_cert_path, keyserver_domain] + list(params), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         output, err_bytes = keyreq_sp.communicate()
         if keyreq_sp.returncode != 0:
@@ -78,7 +78,7 @@ def call_keyreq(keyreq_command, *params):
 def renew_ssh_cert() -> str:
     project_dir = configuration.get_project()
     keypath = os.path.join(project_dir, "ssh-key")
-    refresh_cert(keypath, keypath + "-cert.pub", None, "ssh", "ssh_user_ca", "ssh_user_ca.pub")
+    refresh_cert(keypath, keypath + "-cert.pub", None, "ssh", "ssh-user", "ssh-user.pub")
     return keypath
 
 
@@ -136,8 +136,6 @@ def _is_homeworld_keydef_line(line):
 
 
 def _replace_cert_authority(known_hosts_lines: list, machine_list: str, pubkey: bytes) -> list:
-    # unlike the original golang implementation, machine_list is trusted and locally-generated, so no validation is
-    # necessary.
     pubkey_parts = pubkey.split(b" ")
 
     if len(pubkey_parts) != 2:
@@ -150,6 +148,7 @@ def _replace_cert_authority(known_hosts_lines: list, machine_list: str, pubkey: 
         command.fail("invalid base64-encoded pubkey: %s" % e)
 
     rebuilt = [line for line in known_hosts_lines if not _is_homeworld_keydef_line(line)]
+    # machine_list is trusted and locally-generated, so no validation is necessary
     rebuilt.append("@cert-authority %s ssh-rsa %s %s"
                    % (machine_list, base64.b64encode(b64data).decode(), HOMEWORLD_KNOWN_HOSTS_MARKER))
     return rebuilt
@@ -163,10 +162,9 @@ def get_known_hosts_path() -> str:
 
 
 def update_known_hosts():
-    # uses local copies of machine list and ssh-host pubkey
-    # TODO: eliminate now-redundant machine.list download from keyserver
-    machines = configuration.get_machine_list_file().strip()
-    cert_authority_pubkey = authority.get_pubkey_by_filename("./ssh_host_ca.pub")
+    config = configuration.Config.load_from_project()
+    machines = ",".join("%s.%s" % (node.hostname, config.external_domain) for node in config.nodes)
+    cert_authority_pubkey = authority.get_pubkey_by_filename("./ssh-host.pub")
     known_hosts_path = get_known_hosts_path()
     known_hosts_old = util.readfile(known_hosts_path).decode().split("\n") if os.path.exists(known_hosts_path) else []
 

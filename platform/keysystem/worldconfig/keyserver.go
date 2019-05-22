@@ -55,7 +55,7 @@ func GenerateAccounts(context *config.Context, conf *SpireSetup, auth Authoritie
 	// if kerberos is enabled
 	if len(conf.RootAdmins) > 0 {
 		for _, node := range conf.Nodes {
-			if node.Kind == "supervisor" {
+			if node.IsSupervisor() {
 				principal := "host/" + node.DNS() + "@" + conf.Cluster.KerberosRealm
 				acc := &account.Account{
 					Principal:         principal,
@@ -82,51 +82,19 @@ type Authorities struct {
 	EtcdServer     *authorities.TLSAuthority
 	EtcdClient     *authorities.TLSAuthority
 	Kubernetes     *authorities.TLSAuthority
-	ServiceAccount *authorities.StaticAuthority
+	ServiceAccount *authorities.TLSAuthority
 }
 
-func GenerateAuthorities() map[string]config.ConfigAuthority {
-	return map[string]config.ConfigAuthority{
-		"keygranting": {
-			Type: "TLS",
-			Key:  "keygrant.key",
-			Cert: "keygrant.pem",
-		},
-		"clusterca": {
-			Type: "TLS",
-			Key:  "cluster.key",
-			Cert: "cluster.pem",
-		},
-		"ssh-user": {
-			Type: "SSH",
-			Key:  "ssh_user_ca",
-			Cert: "ssh_user_ca.pub",
-		},
-		"ssh-host": {
-			Type: "SSH",
-			Key:  "ssh_host_ca",
-			Cert: "ssh_host_ca.pub",
-		},
-		"etcd-server": {
-			Type: "TLS",
-			Key:  "etcd-server.key",
-			Cert: "etcd-server.pem",
-		},
-		"etcd-client": {
-			Type: "TLS",
-			Key:  "etcd-client.key",
-			Cert: "etcd-client.pem",
-		},
-		"kubernetes": {
-			Type: "TLS",
-			Key:  "kubernetes.key",
-			Cert: "kubernetes.pem",
-		},
-		"serviceaccount": {
-			Type: "static",
-			Key:  "serviceaccount.key",
-			Cert: "serviceaccount.pem",
-		},
+func ListAuthorities() []config.ConfigAuthority {
+	return []config.ConfigAuthority{
+		config.TLSAuthority("keygranting"),
+		config.TLSAuthority("clusterca"),
+		config.SSHAuthority("ssh-user"),
+		config.SSHAuthority("ssh-host"),
+		config.TLSAuthority("kubernetes"),
+		config.TLSAuthority("etcd-server"),
+		config.TLSAuthority("etcd-client"),
+		config.TLSAuthority("serviceaccount"),
 	}
 }
 
@@ -172,7 +140,7 @@ func GrantsForNodeAccount(c *config.Context, conf *SpireSetup, groups Groups, au
 
 	// MEMBERSHIP IN THE CLUSTER
 
-	if node.Kind == "supervisor" {
+	if node.IsSupervisor() {
 		grants["bootstrap-keyinit"] = account.NewBootstrapPrivilege(groups.Nodes, time.Hour, c.TokenVerifier.Registry)
 		grants["auth-to-kerberos"] = account.NewImpersonatePrivilege(c.GetAccount, groups.KerberosAccounts)
 	}
@@ -194,7 +162,7 @@ func GrantsForNodeAccount(c *config.Context, conf *SpireSetup, groups Groups, au
 		},
 	)
 
-	if node.Kind == "master" {
+	if node.IsMaster() {
 		grants["grant-kubernetes-master"] = account.NewTLSGrantPrivilege(
 			auth.Kubernetes, true, 30*OneDay, "kube-master-"+node.Hostname,
 			[]string{
@@ -218,7 +186,7 @@ func GrantsForNodeAccount(c *config.Context, conf *SpireSetup, groups Groups, au
 		)
 	}
 
-	if node.Kind == "supervisor" {
+	if node.IsSupervisor() {
 		grants["grant-registry-host"] = account.NewTLSGrantPrivilege(
 			auth.ClusterCA, true, 30*OneDay, "homeworld-supervisor-"+node.Hostname,
 			[]string{"homeworld.private"},
@@ -236,7 +204,7 @@ func GrantsForNodeAccount(c *config.Context, conf *SpireSetup, groups Groups, au
 		},
 	)
 
-	if node.Kind == "master" {
+	if node.IsMaster() {
 		grants["grant-etcd-client"] = account.NewTLSGrantPrivilege(auth.EtcdClient, false, 30*OneDay, "etcd-client-"+node.Hostname,
 			[]string{
 				node.DNS(),
@@ -266,6 +234,7 @@ func ValidateStaticFiles(context *config.Context) error {
 }
 
 const AuthorityKeyDirectory = "/etc/homeworld/keyserver/authorities/"
+const ClusterConfigPath = "/etc/homeworld/keyserver/static/cluster.conf"
 
 func GenerateConfig() (*config.Context, error) {
 	conf, err := LoadSpireSetup(paths.SpireSetupPath)
@@ -278,11 +247,7 @@ func GenerateConfig() (*config.Context, error) {
 		StaticFiles: map[string]config.StaticFile{
 			"cluster.conf": {
 				Filename: "cluster.conf",
-				Filepath: "/etc/homeworld/keyserver/static/cluster.conf",
-			},
-			"machine.list": {
-				Filename: "machine.list",
-				Filepath: "/etc/homeworld/keyserver/static/machine.list",
+				Filepath: ClusterConfigPath,
 			},
 		},
 		Authorities:  map[string]authorities.Authority{},
@@ -293,12 +258,12 @@ func GenerateConfig() (*config.Context, error) {
 	if err != nil {
 		return nil, err
 	}
-	for name, authority := range GenerateAuthorities() {
+	for _, authority := range ListAuthorities() {
 		loaded, err := authority.Load(AuthorityKeyDirectory)
 		if err != nil {
 			return nil, err
 		}
-		context.Authorities[name] = loaded
+		context.Authorities[authority.Name] = loaded
 	}
 	auth := Authorities{
 		Keygranting:    context.Authorities["keygranting"].(*authorities.TLSAuthority),
@@ -306,7 +271,7 @@ func GenerateConfig() (*config.Context, error) {
 		EtcdClient:     context.Authorities["etcd-client"].(*authorities.TLSAuthority),
 		EtcdServer:     context.Authorities["etcd-server"].(*authorities.TLSAuthority),
 		Kubernetes:     context.Authorities["kubernetes"].(*authorities.TLSAuthority),
-		ServiceAccount: context.Authorities["serviceaccount"].(*authorities.StaticAuthority),
+		ServiceAccount: context.Authorities["serviceaccount"].(*authorities.TLSAuthority),
 		SshHost:        context.Authorities["ssh-host"].(*authorities.SSHAuthority),
 		SshUser:        context.Authorities["ssh-user"].(*authorities.SSHAuthority),
 	}
