@@ -18,7 +18,6 @@ type StaticFile struct {
 
 type Context struct {
 	Authorities             map[string]authorities.Authority
-	Groups                  map[string]*account.Group
 	Accounts                map[string]*account.Account
 	TokenVerifier           verifier.TokenVerifier
 	AuthenticationAuthority *authorities.TLSAuthority
