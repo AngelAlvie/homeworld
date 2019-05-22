@@ -51,7 +51,7 @@ type SpireSetup struct {
 	Addresses struct {
 		ServiceAPI string `yaml:"service-api"`
 	}
-	Nodes      []SpireNode
+	Nodes      []*SpireNode
 	RootAdmins []string `yaml:"root-admins"`
 }
 

@@ -89,7 +89,7 @@ type Authorities struct {
 func GenerateAuthorities(conf *SpireSetup) map[string]config.ConfigAuthority {
 	var presentAs []string
 	for _, node := range conf.Nodes {
-		if node.Kind == "supervisor" {
+		if node.IsSupervisor() {
 			presentAs = append(presentAs, node.DNS())
 		}
 	}
@@ -169,7 +169,7 @@ func GrantsForRootAdminAccount(c *config.Context, groups Groups, auth Authoritie
 	return grants
 }
 
-func GenerateLocalConf(conf *SpireSetup, node SpireNode) string {
+func GenerateLocalConf(conf *SpireSetup, node *SpireNode) string {
 	scheduleWork := node.IsWorker()
 
 	return `# generated automatically by keyserver
@@ -180,7 +180,7 @@ SCHEDULE_WORK=` + strconv.FormatBool(scheduleWork) + `
 KIND=` + node.Kind
 }
 
-func GrantsForNodeAccount(c *config.Context, conf *SpireSetup, groups Groups, auth Authorities, ac *account.Account, node SpireNode) map[string]account.Privilege {
+func GrantsForNodeAccount(c *config.Context, conf *SpireSetup, groups Groups, auth Authorities, ac *account.Account, node *SpireNode) map[string]account.Privilege {
 	// NOTE: at the point where this runs, not all accounts will necessarily be registered with the context!
 	var grants = map[string]account.Privilege{}
 
