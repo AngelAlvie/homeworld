@@ -5,21 +5,23 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"io/ioutil"
-	"log"
-	"net/http"
-
 	"github.com/sipb/homeworld/platform/keysystem/keyserver/account"
 	"github.com/sipb/homeworld/platform/keysystem/keyserver/config"
 	"github.com/sipb/homeworld/platform/keysystem/keyserver/operation"
 	"github.com/sipb/homeworld/platform/keysystem/keyserver/verifier"
 	"github.com/sipb/homeworld/platform/util/netutil"
+	"io/ioutil"
+	"log"
+	"net"
+	"net/http"
+	"strings"
 )
 
 type Keyserver interface {
 	HandleAPIRequest(writer http.ResponseWriter, request *http.Request) error
 	HandlePubRequest(writer http.ResponseWriter, authorityName string) error
 	HandleStaticRequest(writer http.ResponseWriter, staticName string) error
+	HandleAdmitRequest(writer http.ResponseWriter, request *http.Request) error
 	GetClientCAs() *x509.CertPool
 	GetServerCert() tls.Certificate
 }
@@ -43,7 +45,7 @@ func verifyAccountIP(account *account.Account, request *http.Request) error {
 }
 
 func attemptAuthentication(context *config.Context, request *http.Request) (*account.Account, error) {
-	verifiers := []verifier.Verifier{context.TokenVerifier, context.AuthenticationAuthority}
+	verifiers := []verifier.Verifier{context.AuthenticationAuthority}
 
 	for _, verif := range verifiers {
 		if verif.HasAttempt(request) {
@@ -112,5 +114,22 @@ func (k *ConfiguredKeyserver) HandleStaticRequest(writer http.ResponseWriter, st
 		return err // odd; we didn't see this earlier
 	}
 	_, err = writer.Write(contents)
+	return err
+}
+
+func (k *ConfiguredKeyserver) HandleAdmitRequest(writer http.ResponseWriter, request *http.Request) error {
+	requestBody, err := ioutil.ReadAll(request.Body)
+	if err != nil {
+		return err
+	}
+	ip := net.ParseIP(strings.Split(request.RemoteAddr, ":")[0])
+	if ip == nil {
+		return fmt.Errorf("invalid IP portion in '%s'", request.RemoteAddr)
+	}
+	response, err := k.Context.AdmitChecker.HandleRequest(requestBody, ip)
+	if err != nil {
+		return err
+	}
+	_, err = writer.Write(response)
 	return err
 }
