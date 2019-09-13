@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"io/ioutil"
 	"log"
 	"os"
 	"time"
@@ -13,17 +14,17 @@ import (
 	"github.com/sipb/homeworld/platform/keysystem/api/reqtarget"
 	"github.com/sipb/homeworld/platform/keysystem/api/server"
 	"github.com/sipb/homeworld/platform/keysystem/keyserver/config"
+	"github.com/sipb/homeworld/platform/keysystem/worldconfig/paths"
 	"github.com/sipb/homeworld/platform/util/wraputil"
 )
 
 func main() {
 	logger := log.New(os.Stderr, "[keyinitadmit] ", log.Ldate|log.Ltime|log.Lmicroseconds|log.Lshortfile)
-	if len(os.Args) < 5 {
-		logger.Fatal("usage: keyinitadmit <keyserver-config> <server> <principal> <bootstrap-api>\n  runs on the keyserver; requests a bootstrap token using privileged access")
+	if len(os.Args) != 4 {
+		logger.Fatal("usage: keyinitadmit <keyserver-config> <server> <principal>\n  runs on the keyserver; requests a bootstrap token using privileged access")
 	}
 	serverName := os.Args[2]
 	principal := os.Args[3]
-	bootstrap_api := os.Args[4]
 	ctx, err := config.LoadConfig(os.Args[1])
 	if err != nil {
 		logger.Fatal(err)
@@ -53,11 +54,11 @@ func main() {
 	if err != nil {
 		logger.Fatal(err)
 	}
-	token, err := reqtarget.SendRequest(rt, bootstrap_api, principal)
+	token, err := reqtarget.SendRequest(rt, paths.BootstrapKeyserverTokenAPI, principal)
 	if err != nil {
 		logger.Fatal(err)
 	}
-	_, err = os.Stdout.WriteString(token)
+	err = ioutil.WriteFile(paths.BootstrapTokenPath, []byte(token), 0600)
 	if err != nil {
 		logger.Fatal(err)
 	}
